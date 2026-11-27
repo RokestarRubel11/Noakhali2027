@@ -28,7 +28,7 @@ import type {
   WithdrawalRequest,
 } from './src/types.ts';
 
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 const TOKEN_SECRET =
   process.env.SESSION_SECRET ||
   crypto.createHash('sha256').update(process.cwd() + ':hns-society-secret-key').digest('hex');
@@ -244,7 +244,8 @@ function buildMemberOverview(memberDocId: string): MemberOverviewResponse {
 }
 
 async function startServer() {
-  await initDbFromSupabase();
+  loadDb();
+  void initDbFromSupabase();
   const app = express();
   app.use(express.json({ limit: '15mb' }));
 
@@ -314,7 +315,10 @@ async function startServer() {
       return;
     }
 
-    if (!bcrypt.compareSync(password, member.passwordHash)) {
+    const memberPassOk =
+      bcrypt.compareSync(password, member.passwordHash) ||
+      bcrypt.compareSync(password.trim(), member.passwordHash);
+    if (!memberPassOk) {
       res.status(401).json({ error: 'Incorrect password for this account' });
       return;
     }
@@ -395,7 +399,10 @@ async function startServer() {
       return;
     }
 
-    if (!bcrypt.compareSync(password, member.passwordHash)) {
+    const memberPassOk =
+      bcrypt.compareSync(password, member.passwordHash) ||
+      bcrypt.compareSync(password.trim(), member.passwordHash);
+    if (!memberPassOk) {
       res.status(401).json({ error: 'Incorrect password for this account' });
       return;
     }

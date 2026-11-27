@@ -99,5 +99,6 @@
     "bankRoutingNumber": "125751096"
   },
   "nextMemberSeq": 4,
-  "nextReceiptSeq": 1
+  "nextReceiptSeq": 1,
+  "withdrawals": []
 }

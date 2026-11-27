@@ -349,14 +349,24 @@ export function isSupabaseSchemaReady(): boolean {
 export async function initDbFromSupabase(): Promise<void> {
   const local = loadDb();
   try {
-    const { data, error } = await supabaseServer
+    const queryPromise = supabaseServer
       .from('society_state')
       .select('data')
       .eq('id', 1)
       .maybeSingle();
 
+    const timeoutPromise = new Promise<{ data: null; error: { message: string; code?: string } }>((resolve) =>
+      setTimeout(() => resolve({ data: null, error: { message: 'Supabase init timeout' } }), 2500)
+    );
+
+    const { data, error } = await Promise.race([queryPromise, timeoutPromise]);
+
     if (error) {
-      if (error.code !== 'PGRST205' && !error.message?.includes('schema cache')) {
+      if (
+        error.code !== 'PGRST205' &&
+        !error.message?.includes('schema cache') &&
+        !error.message?.includes('timeout')
+      ) {
         console.warn('Supabase init check:', error.message);
       }
       return;
