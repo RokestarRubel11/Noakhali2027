@@ -1,0 +1,6 @@
+{
+  "name": "Hello Noakhali Savings and Investment Society",
+  "description": "Bilingual cooperative savings, payment verification, investment tracking, and governance platform with dedicated Admin and Member dashboards.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

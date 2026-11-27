@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Hind Siliguri", "Noto Sans Bengali", "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --color-navy-950: #04184A;
+  --color-navy-900: #061E54;
+  --color-navy-800: #09328E;
+  --color-navy-700: #0D47BD;
+  --color-navy-600: #145CE0;
+  --color-gold-600: #C99700;
+  --color-gold-500: #F5C518;
+  --color-gold-400: #FFD426;
+  --color-gold-100: #FEF7D6;
+  --color-gold-50: #FFFDF2;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    font-size: 16.5px;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: #EAF3FF;
+    color: #061E54;
+    font-weight: 500;
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Safe area padding for Android/mobile bottom nav */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
