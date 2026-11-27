@@ -35,7 +35,7 @@ import {
   X,
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext.tsx';
-import { apiRequest, getAdminToken, setAdminToken } from '../../lib/api.ts';
+import { ApiError, apiRequest, getAdminToken, setAdminToken } from '../../lib/api.ts';
 import type {
   AdminOverviewResponse,
   MemberPublic,
@@ -137,6 +137,7 @@ export function AdminDashboard({ onLogout }: { onLogout: () => void }) {
       const msg = err instanceof Error ? err.message : 'Failed to load admin dashboard';
       setError(msg);
       if (
+        (err instanceof ApiError && (err.status === 401 || err.status === 403)) ||
         msg.includes('401') ||
         msg.includes('403') ||
         msg.toLowerCase().includes('forbidden') ||

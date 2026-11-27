@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS public.members (
   accepted_rules BOOLEAN DEFAULT FALSE,
   registration_completed BOOLEAN DEFAULT FALSE,
   registration_status TEXT DEFAULT 'unsubmitted',
-  monthly_target NUMERIC DEFAULT 1000,
+  monthly_target NUMERIC DEFAULT 5000,
   total_savings NUMERIC DEFAULT 0,
   status TEXT DEFAULT 'pending', -- 'pending', 'active', 'suspended'
   role TEXT DEFAULT 'member',
@@ -179,7 +179,10 @@ CREATE TABLE IF NOT EXISTS public.society_state (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Seed Default Settings
+-- Ensure 5000 BDT default monthly deposit
+ALTER TABLE public.members ALTER COLUMN monthly_target SET DEFAULT 5000;
+
+-- Seed / Update Default Settings (5000 BDT Monthly Deposit)
 INSERT INTO public.settings (
   id, society_name_en, society_name_bn, monthly_deposit_amount, default_late_fine, grace_day_of_month,
   bkash_number, bkash_account_type, nagad_number, nagad_account_type,
@@ -188,7 +191,7 @@ INSERT INTO public.settings (
   1,
   'Hello Noakhali Savings and Investment Society',
   'হ্যালো নোয়াখালী সঞ্চয় ও বিনিয়োগ সমিতি',
-  1000,
+  5000,
   100,
   10,
   '01800-000000',
@@ -200,7 +203,7 @@ INSERT INTO public.settings (
   '2050-0000-0000-0001',
   'Maijdee Court Branch, Noakhali',
   '125751096'
-) ON CONFLICT (id) DO NOTHING;
+) ON CONFLICT (id) DO UPDATE SET monthly_deposit_amount = 5000;
 
 -- Disable RLS so backend API sync works immediately with the project key
 ALTER TABLE public.admins DISABLE ROW LEVEL SECURITY;

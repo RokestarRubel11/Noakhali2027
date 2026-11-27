@@ -18,10 +18,19 @@ function safeSetStorage(key: string, value: string | null): void {
       sessionStorage.removeItem(key);
       localStorage.removeItem(key);
     } else {
+      sessionStorage.setItem(key, value);
       localStorage.setItem(key, value);
     }
   } catch {
     // ignore storage access restrictions in embedded iframes
+  }
+}
+
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
   }
 }
 
@@ -56,9 +65,17 @@ export async function apiRequest<T>(
     reqHeaders.set('Authorization', `Bearer ${token}`);
   }
   const res = await fetch(url, { ...rest, headers: reqHeaders });
-  const data = await res.json().catch(() => ({}));
+  let data: { error?: string } = {};
+  try {
+    const text = await res.text();
+    if (text) {
+      data = JSON.parse(text) as { error?: string };
+    }
+  } catch {
+    data = {};
+  }
   if (!res.ok) {
-    throw new Error(data.error || `Request failed (${res.status})`);
+    throw new ApiError(data.error || `Request failed (${res.status})`, res.status);
   }
   return data as T;
 }

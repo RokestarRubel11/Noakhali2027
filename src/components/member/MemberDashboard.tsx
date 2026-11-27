@@ -32,7 +32,7 @@ import {
 } from 'lucide-react';
 import { MEMBER_UPLIFTING_QUOTES } from '../../data/memberQuotes.ts';
 import { useLanguage } from '../../context/LanguageContext.tsx';
-import { apiRequest, getMemberToken, setMemberToken } from '../../lib/api.ts';
+import { ApiError, apiRequest, getMemberToken, setMemberToken } from '../../lib/api.ts';
 import { processAnyImageToDataUrl } from '../../lib/imageUtils.ts';
 import { downloadReceiptPdf } from '../../lib/reports.ts';
 import type { MemberOverviewResponse, PaymentMethod, PaymentType } from '../../types.ts';
@@ -118,7 +118,13 @@ export function MemberDashboard({ onLogout }: { onLogout: () => void }) {
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to load member dashboard';
       setError(msg);
-      if (msg.includes('401') || msg.includes('403') || msg.toLowerCase().includes('forbidden')) {
+      if (
+        (err instanceof ApiError && (err.status === 401 || err.status === 403)) ||
+        msg.includes('401') ||
+        msg.includes('403') ||
+        msg.toLowerCase().includes('forbidden') ||
+        msg.toLowerCase().includes('authentication')
+      ) {
         setMemberToken(null);
         onLogout();
       }

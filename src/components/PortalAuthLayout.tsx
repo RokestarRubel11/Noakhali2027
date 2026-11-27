@@ -71,6 +71,10 @@ export function PortalAuthLayout({
     ? t('createIdHeader')
     : role === 'admin'
     ? t('adminLoginPillTitle')
+    : role === 'unified'
+    ? lang === 'bn'
+      ? 'সদস্য ও অ্যাডমিন লগইন'
+      : 'Member & Admin Login'
     : t('memberLoginHeader');
 
   const features = [
@@ -236,7 +240,7 @@ export function PortalAuthLayout({
                   </div>
                 )}
 
-                <form onSubmit={onSubmit} className="space-y-4">
+                <form onSubmit={onSubmit} noValidate className="space-y-4">
                   {/* Identifier / Gmail Input */}
                   <div className="rounded-xl bg-[#FAFCFF] border border-[#B5CFF8] focus-within:border-[#0B3899] focus-within:ring-2 focus-within:ring-[#0B3899]/15 px-3.5 py-2 flex items-center gap-3 transition-all">
                     <div className="w-9 h-9 rounded-full bg-[#09328E] text-white flex items-center justify-center shrink-0">
@@ -282,7 +286,7 @@ export function PortalAuthLayout({
                         spellCheck={false}
                         autoComplete={isCreateMode ? 'new-password' : 'current-password'}
                         required
-                        minLength={passwordMinLength}
+                        minLength={isCreateMode ? passwordMinLength : undefined}
                         value={password}
                         onChange={(e) => onPasswordChange(e.target.value)}
                         placeholder="••••••••"
@@ -387,6 +391,14 @@ export function PortalAuthLayout({
                         <UserPlus className="w-5 h-5 shrink-0" aria-hidden="true" />
                         <span>{t('newMemberRegisterBtn')}</span>
                       </button>
+
+                      {role === 'unified' && (
+                        <p className="text-center text-xs font-bold text-slate-500 pt-1">
+                          {lang === 'bn'
+                            ? 'নতুন সদস্যরা আগে Create ID করুন (অ্যাডমিন অনুমোদনের পর লগইন হবে)'
+                            : 'New members: use Create ID first (login unlocks after Admin approval)'}
+                        </p>
+                      )}
                     </>
                   )}
 

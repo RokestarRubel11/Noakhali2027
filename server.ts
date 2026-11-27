@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import bcrypt from 'bcryptjs';
 import {
   SOLE_ADMIN_EMAIL,
+  deleteSupabaseRow,
   formatMemberCode,
   formatReceiptCode,
   initDbFromSupabase,
@@ -873,8 +874,9 @@ async function startServer() {
       res.status(404).json({ error: 'Ledger entry not found' });
       return;
     }
-    db.ledger.splice(idx, 1);
+    const [removed] = db.ledger.splice(idx, 1);
     saveDb(db);
+    if (removed) deleteSupabaseRow('ledger', removed.id);
     res.json({ ok: true });
   });
 
@@ -1383,7 +1385,11 @@ async function startServer() {
 
   // ---------------- VITE / STATIC SERVING ----------------
   const distDir = path.resolve(process.cwd(), 'dist');
-  const isProd = process.env.NODE_ENV === 'production' && fs.existsSync(distDir);
+  const isRunningUnderTsx = process.execArgv.some((arg) => arg.includes('tsx'));
+  const isProd =
+    fs.existsSync(distDir) &&
+    (process.env.NODE_ENV === 'production' ||
+      (!isRunningUnderTsx && process.env.npm_lifecycle_event !== 'dev'));
 
   if (isProd) {
     app.use(express.static(distDir));

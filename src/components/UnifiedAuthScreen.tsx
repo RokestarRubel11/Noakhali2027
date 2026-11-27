@@ -37,15 +37,37 @@ export function UnifiedAuthScreen({ onSuccess }: UnifiedAuthScreenProps) {
     e.preventDefault();
     setError('');
     setNotice('');
+    const cleanIdentifier = identifier.trim();
+    if (!cleanIdentifier) {
+      setError(
+        lang === 'bn'
+          ? 'অনুগ্রহ করে আপনার জিমেইল অথবা মেম্বার আইডি লিখুন।'
+          : 'Please enter your Gmail address or Member ID.'
+      );
+      return;
+    }
+    if (!password) {
+      setError(
+        lang === 'bn' ? 'অনুগ্রহ করে পাসওয়ার্ড লিখুন।' : 'Please enter your password.'
+      );
+      return;
+    }
     setLoading(true);
     try {
       if (authMode === 'create') {
-        const cleanEmail = identifier.trim().toLowerCase();
+        const cleanEmail = cleanIdentifier.toLowerCase();
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
           throw new Error(
             lang === 'bn'
               ? 'সঠিক জিমেইল (Gmail) ঠিকানা লিখুন।'
               : 'Please enter a valid Gmail address.'
+          );
+        }
+        if (password.length < 6) {
+          throw new Error(
+            lang === 'bn'
+              ? 'পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে।'
+              : 'Password must be at least 6 characters.'
           );
         }
         const res = await apiRequest<{
@@ -89,12 +111,12 @@ export function UnifiedAuthScreen({ onSuccess }: UnifiedAuthScreenProps) {
 
       const res = await apiRequest<UnifiedLoginResponse>('/api/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ identifier, password }),
+        body: JSON.stringify({ identifier: cleanIdentifier, password }),
       });
 
       try {
         if (rememberMe) {
-          window.localStorage.setItem(REMEMBER_IDENTIFIER_KEY, identifier.trim());
+          window.localStorage.setItem(REMEMBER_IDENTIFIER_KEY, cleanIdentifier);
         } else {
           window.localStorage.removeItem(REMEMBER_IDENTIFIER_KEY);
         }
@@ -158,14 +180,14 @@ export function UnifiedAuthScreen({ onSuccess }: UnifiedAuthScreenProps) {
             ? 'জিমেইল (Gmail) *'
             : 'Gmail Address *'
           : lang === 'bn'
-          ? 'সদস্য আইডি / জিমেইল / মোবাইল নম্বর'
+          ? 'জিমেইল / সদস্য আইডি / মোবাইল নম্বর'
           : t('identifierLabel')
       }
       identifierPlaceholder={
         authMode === 'create'
           ? 'yourname@gmail.com'
           : lang === 'bn'
-          ? 'সদস্য আইডি / জিমেইল / মোবাইল নম্বর'
+          ? 'জিমেইল অথবা সদস্য আইডি লিখুন'
           : 'yourname@gmail.com or HNS-0001'
       }
       passwordMinLength={6}

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { LanguageProvider } from './context/LanguageContext.tsx';
 import { UnifiedAuthScreen } from './components/UnifiedAuthScreen.tsx';
 import { AdminDashboard } from './components/admin/AdminDashboard.tsx';
@@ -26,7 +26,7 @@ function AppShell() {
     return 'auth';
   });
 
-  const navigateView = (next: PortalView) => {
+  const navigateView = useCallback((next: PortalView) => {
     setView(next);
     try {
       if (next === 'admin-app') {
@@ -39,21 +39,28 @@ function AppShell() {
     } catch {
       // ignore history errors in sandboxed frames
     }
-  };
+  }, []);
+
+  const handleLogout = useCallback(() => {
+    navigateView('auth');
+  }, [navigateView]);
+
+  const handleAuthSuccess = useCallback(
+    (role: 'admin' | 'member') => {
+      navigateView(role === 'admin' ? 'admin-app' : 'member-app');
+    },
+    [navigateView]
+  );
 
   if (view === 'admin-app') {
-    return <AdminDashboard onLogout={() => navigateView('auth')} />;
+    return <AdminDashboard onLogout={handleLogout} />;
   }
 
   if (view === 'member-app') {
-    return <MemberDashboard onLogout={() => navigateView('auth')} />;
+    return <MemberDashboard onLogout={handleLogout} />;
   }
 
-  return (
-    <UnifiedAuthScreen
-      onSuccess={(role) => navigateView(role === 'admin' ? 'admin-app' : 'member-app')}
-    />
-  );
+  return <UnifiedAuthScreen onSuccess={handleAuthSuccess} />;
 }
 
 export default function App() {
