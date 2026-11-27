@@ -39,7 +39,10 @@ export interface SocietyDatabase {
   nextReceiptSeq: number;
 }
 
-const DATA_DIR = path.resolve(process.cwd(), 'data');
+const IS_SERVERLESS = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+const DATA_DIR = IS_SERVERLESS
+  ? path.join('/tmp', 'hns-society-data')
+  : path.resolve(process.cwd(), 'data');
 const DB_PATH = path.join(DATA_DIR, 'society-db.json');
 
 const DEFAULT_SETTINGS: SocietySettings = {
@@ -93,6 +96,11 @@ function createInitialDb(): SocietyDatabase {
 let cachedDb: SocietyDatabase | null = null;
 let supabaseSyncChain: Promise<void> = Promise.resolve();
 let supabaseSchemaReady = false;
+let supabaseWriteReady = false;
+let lastSupabaseSyncError: string | null = null;
+let initPromise: Promise<void> | null = null;
+let hasHydratedOnce = false;
+let lastHydratedAt = 0;
 
 function normalizeLoadedDb(parsed: SocietyDatabase): SocietyDatabase {
   const mainAdminPass = process.env.MAIN_ADMIN_PASSWORD || 'Hello2027';
@@ -120,13 +128,17 @@ function normalizeLoadedDb(parsed: SocietyDatabase): SocietyDatabase {
 }
 
 function writeLocalDb(db: SocietyDatabase): void {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-  const tmpPath = `${DB_PATH}.tmp`;
-  fs.writeFileSync(tmpPath, JSON.stringify(db, null, 2), 'utf-8');
-  fs.renameSync(tmpPath, DB_PATH);
   cachedDb = db;
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    const tmpPath = `${DB_PATH}.tmp`;
+    fs.writeFileSync(tmpPath, JSON.stringify(db, null, 2), 'utf-8');
+    fs.renameSync(tmpPath, DB_PATH);
+  } catch (err) {
+    console.warn('Local DB write skipped (using in-memory + Supabase):', err);
+  }
 }
 
 function isMissingTableError(error: { message?: string; code?: string } | null | undefined): boolean {
@@ -142,6 +154,12 @@ function isMissingColumnError(error: { message?: string; code?: string } | null 
 async function performSupabaseSync(db: SocietyDatabase): Promise<void> {
   try {
     let anyCoreTableReady = false;
+    let firstWriteError: string | null = null;
+    const trackErr = (err: { message?: string; code?: string } | null | undefined) => {
+      if (err && !isMissingTableError(err) && !firstWriteError) {
+        firstWriteError = err.message || err.code || 'Supabase write failed';
+      }
+    };
 
     const { error: stateErr } = await supabaseServer.from('society_state').upsert({
       id: 1,
@@ -152,6 +170,7 @@ async function performSupabaseSync(db: SocietyDatabase): Promise<void> {
       anyCoreTableReady = true;
     } else if (!isMissingTableError(stateErr)) {
       console.warn('Supabase society_state sync note:', stateErr.message);
+      trackErr(stateErr);
     }
 
     const { error: settingsErr } = await supabaseServer.from('settings').upsert({
@@ -175,6 +194,7 @@ async function performSupabaseSync(db: SocietyDatabase): Promise<void> {
       anyCoreTableReady = true;
     } else if (!isMissingTableError(settingsErr)) {
       console.warn('Supabase settings sync note:', settingsErr.message);
+      trackErr(settingsErr);
     }
 
     if (db.admins.length > 0) {
@@ -431,8 +451,16 @@ async function performSupabaseSync(db: SocietyDatabase): Promise<void> {
 
     if (anyCoreTableReady) {
       supabaseSchemaReady = true;
+      supabaseWriteReady = true;
+      lastSupabaseSyncError = null;
+    } else {
+      supabaseWriteReady = false;
+      if (firstWriteError) {
+        lastSupabaseSyncError = firstWriteError;
+      }
     }
   } catch (err) {
+    lastSupabaseSyncError = err instanceof Error ? err.message : 'Supabase sync error';
     console.warn('Supabase background sync warning:', err);
   }
 }
@@ -447,6 +475,18 @@ export function deleteSupabaseRow(table: string, id: string): void {
 
 export function isSupabaseSchemaReady(): boolean {
   return supabaseSchemaReady;
+}
+
+export function getSupabaseSyncStatus(): {
+  schemaReady: boolean;
+  writeReady: boolean;
+  lastError: string | null;
+} {
+  return {
+    schemaReady: supabaseSchemaReady,
+    writeReady: supabaseWriteReady,
+    lastError: lastSupabaseSyncError,
+  };
 }
 
 export async function initDbFromSupabase(): Promise<void> {
@@ -506,7 +546,7 @@ export async function initDbFromSupabase(): Promise<void> {
     supabaseSchemaReady = true;
 
     const remoteMembers = (membersRes.data || []) as Record<string, unknown>[];
-    if (local.members.length === 0 && remoteMembers.length > 0) {
+    if ((IS_SERVERLESS || local.members.length === 0) && remoteMembers.length > 0) {
       const hydrated: SocietyDatabase = {
         ...local,
         members: remoteMembers.map((r) => ({
@@ -646,7 +686,14 @@ export async function initDbFromSupabase(): Promise<void> {
               bankRoutingNumber: String((settingsRes.data as Record<string, unknown>).bank_routing_number || local.settings.bankRoutingNumber),
             }
           : local.settings,
-        nextMemberSeq: Math.max(local.nextMemberSeq, remoteMembers.length + 1),
+        nextMemberSeq: Math.max(
+          local.nextMemberSeq,
+          ...remoteMembers.map((r) => {
+            const match = String(r.member_id || '').match(/(\d+)$/);
+            return match ? Number(match[1]) + 1 : 1;
+          }),
+          remoteMembers.length + 1
+        ),
       };
       writeLocalDb(normalizeLoadedDb(hydrated));
     } else {
@@ -654,23 +701,45 @@ export async function initDbFromSupabase(): Promise<void> {
     }
   } catch (err) {
     console.warn('Supabase init fallback to local store:', err);
+  } finally {
+    lastHydratedAt = Date.now();
   }
+}
+
+export async function ensureDbReady(): Promise<void> {
+  if (hasHydratedOnce && (!IS_SERVERLESS || Date.now() - lastHydratedAt < 4000)) {
+    return;
+  }
+  if (!initPromise) {
+    initPromise = initDbFromSupabase().finally(() => {
+      hasHydratedOnce = true;
+      initPromise = null;
+    });
+  }
+  await initPromise;
 }
 
 export function loadDb(): SocietyDatabase {
   if (cachedDb) return cachedDb;
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-  if (!fs.existsSync(DB_PATH)) {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    if (!fs.existsSync(DB_PATH)) {
+      const initial = createInitialDb();
+      writeLocalDb(initial);
+      return initial;
+    }
+    const raw = fs.readFileSync(DB_PATH, 'utf-8');
+    const parsed = normalizeLoadedDb(JSON.parse(raw) as SocietyDatabase);
+    writeLocalDb(parsed);
+    return parsed;
+  } catch (err) {
+    console.warn('Local DB load fallback to fresh memory store:', err);
     const initial = createInitialDb();
-    writeLocalDb(initial);
+    cachedDb = initial;
     return initial;
   }
-  const raw = fs.readFileSync(DB_PATH, 'utf-8');
-  const parsed = normalizeLoadedDb(JSON.parse(raw) as SocietyDatabase);
-  writeLocalDb(parsed);
-  return parsed;
 }
 
 export function saveDb(db: SocietyDatabase): void {
@@ -679,6 +748,15 @@ export function saveDb(db: SocietyDatabase): void {
   supabaseSyncChain = supabaseSyncChain
     .then(() => performSupabaseSync(snapshot))
     .catch(() => {});
+}
+
+export async function saveDbAsync(db: SocietyDatabase): Promise<void> {
+  writeLocalDb(db);
+  const snapshot = JSON.parse(JSON.stringify(db)) as SocietyDatabase;
+  supabaseSyncChain = supabaseSyncChain
+    .then(() => performSupabaseSync(snapshot))
+    .catch(() => {});
+  await supabaseSyncChain;
 }
 
 export function sanitizeAdmin(a: AdminStored): AdminUserPublic {
