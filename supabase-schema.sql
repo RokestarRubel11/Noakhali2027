@@ -179,6 +179,16 @@ CREATE TABLE IF NOT EXISTS public.society_state (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Ensure all extended member columns exist on pre-created tables
+ALTER TABLE public.members ADD COLUMN IF NOT EXISTS father_name TEXT;
+ALTER TABLE public.members ADD COLUMN IF NOT EXISTS mother_name TEXT;
+ALTER TABLE public.members ADD COLUMN IF NOT EXISTS date_of_birth TEXT;
+ALTER TABLE public.members ADD COLUMN IF NOT EXISTS membership_type TEXT DEFAULT 'general';
+ALTER TABLE public.members ADD COLUMN IF NOT EXISTS signature_text TEXT;
+ALTER TABLE public.members ADD COLUMN IF NOT EXISTS accepted_rules BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.members ADD COLUMN IF NOT EXISTS registration_completed BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.members ADD COLUMN IF NOT EXISTS registration_status TEXT DEFAULT 'unsubmitted';
+
 -- Ensure 5000 BDT default monthly deposit
 ALTER TABLE public.members ALTER COLUMN monthly_target SET DEFAULT 5000;
 
