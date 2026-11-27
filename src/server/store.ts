@@ -71,7 +71,7 @@ function createMainAdmin(): AdminStored {
     name: 'Main Administrator',
     email: SOLE_ADMIN_EMAIL,
     role: 'admin',
-    passwordHash: bcrypt.hashSync(mainAdminPass, 10),
+    passwordHash: bcrypt.hashSync(mainAdminPass, 8),
     createdAt: new Date().toISOString(),
   };
 }
@@ -101,6 +101,20 @@ let lastSupabaseSyncError: string | null = null;
 let initPromise: Promise<void> | null = null;
 let hasHydratedOnce = false;
 let lastHydratedAt = 0;
+
+// Track per-table remote row counts to avoid redundant DELETE calls on empty tables
+const lastSyncedCounts: Record<string, number | undefined> = {};
+
+function recordSyncedCounts(db: SocietyDatabase): void {
+  lastSyncedCounts.members = db.members.length;
+  lastSyncedCounts.payments = db.payments.length;
+  lastSyncedCounts.withdrawals = db.withdrawals.length;
+  lastSyncedCounts.fines = db.fines.length;
+  lastSyncedCounts.ledger = db.ledger.length;
+  lastSyncedCounts.investments = db.investments.length;
+  lastSyncedCounts.meetings = db.meetings.length;
+  lastSyncedCounts.polls = db.polls.length;
+}
 
 function normalizeLoadedDb(parsed: SocietyDatabase): SocietyDatabase {
   const mainAdminPass = process.env.MAIN_ADMIN_PASSWORD || 'Hello2027';
@@ -161,293 +175,399 @@ async function performSupabaseSync(db: SocietyDatabase): Promise<void> {
       }
     };
 
-    const { error: stateErr } = await supabaseServer.from('society_state').upsert({
-      id: 1,
-      data: db,
-      updated_at: new Date().toISOString(),
-    });
-    if (!stateErr) {
-      anyCoreTableReady = true;
-    } else if (!isMissingTableError(stateErr)) {
-      console.warn('Supabase society_state sync note:', stateErr.message);
-      trackErr(stateErr);
-    }
+    const tasks: Promise<void>[] = [];
 
-    const { error: settingsErr } = await supabaseServer.from('settings').upsert({
-      id: 1,
-      society_name_en: db.settings.societyNameEn,
-      society_name_bn: db.settings.societyNameBn,
-      monthly_deposit_amount: db.settings.monthlyDepositAmount,
-      default_late_fine: db.settings.defaultLateFine,
-      grace_day_of_month: db.settings.graceDayOfMonth,
-      bkash_number: db.settings.bkashNumber,
-      bkash_account_type: db.settings.bkashAccountType,
-      nagad_number: db.settings.nagadNumber,
-      nagad_account_type: db.settings.nagadAccountType,
-      bank_name: db.settings.bankName,
-      bank_account_name: db.settings.bankAccountName,
-      bank_account_number: db.settings.bankAccountNumber,
-      bank_branch: db.settings.bankBranch,
-      bank_routing_number: db.settings.bankRoutingNumber,
-    });
-    if (!settingsErr) {
-      anyCoreTableReady = true;
-    } else if (!isMissingTableError(settingsErr)) {
-      console.warn('Supabase settings sync note:', settingsErr.message);
-      trackErr(settingsErr);
-    }
+    tasks.push(
+      (async () => {
+        const { error: stateErr } = await supabaseServer.from('society_state').upsert({
+          id: 1,
+          data: db,
+          updated_at: new Date().toISOString(),
+        });
+        if (!stateErr) {
+          anyCoreTableReady = true;
+        } else if (!isMissingTableError(stateErr)) {
+          console.warn('Supabase society_state sync note:', stateErr.message);
+          trackErr(stateErr);
+        }
+      })()
+    );
+
+    tasks.push(
+      (async () => {
+        const { error: settingsErr } = await supabaseServer.from('settings').upsert({
+          id: 1,
+          society_name_en: db.settings.societyNameEn,
+          society_name_bn: db.settings.societyNameBn,
+          monthly_deposit_amount: db.settings.monthlyDepositAmount,
+          default_late_fine: db.settings.defaultLateFine,
+          grace_day_of_month: db.settings.graceDayOfMonth,
+          bkash_number: db.settings.bkashNumber,
+          bkash_account_type: db.settings.bkashAccountType,
+          nagad_number: db.settings.nagadNumber,
+          nagad_account_type: db.settings.nagadAccountType,
+          bank_name: db.settings.bankName,
+          bank_account_name: db.settings.bankAccountName,
+          bank_account_number: db.settings.bankAccountNumber,
+          bank_branch: db.settings.bankBranch,
+          bank_routing_number: db.settings.bankRoutingNumber,
+        });
+        if (!settingsErr) {
+          anyCoreTableReady = true;
+        } else if (!isMissingTableError(settingsErr)) {
+          console.warn('Supabase settings sync note:', settingsErr.message);
+          trackErr(settingsErr);
+        }
+      })()
+    );
 
     if (db.admins.length > 0) {
-      const { error: adminErr } = await supabaseServer.from('admins').upsert(
-        db.admins.map((a) => ({
-          id: a.id,
-          name: a.name,
-          email: a.email,
-          role: a.role,
-          password_hash: a.passwordHash,
-          created_at: a.createdAt,
-        }))
+      tasks.push(
+        (async () => {
+          const { error: adminErr } = await supabaseServer.from('admins').upsert(
+            db.admins.map((a) => ({
+              id: a.id,
+              name: a.name,
+              email: a.email,
+              role: a.role,
+              password_hash: a.passwordHash,
+              created_at: a.createdAt,
+            }))
+          );
+          if (!adminErr) {
+            anyCoreTableReady = true;
+          } else if (!isMissingTableError(adminErr)) {
+            console.warn('Supabase admins sync note:', adminErr.message);
+          }
+        })()
       );
-      if (!adminErr) {
-        anyCoreTableReady = true;
-      } else if (!isMissingTableError(adminErr)) {
-        console.warn('Supabase admins sync note:', adminErr.message);
-      }
     }
 
     if (db.members.length > 0) {
-      const { error: memErr } = await supabaseServer.from('members').upsert(
-        db.members.map((m) => ({
-          id: m.id,
-          member_id: m.memberId,
-          name: m.name,
-          father_name: m.fatherName || '',
-          mother_name: m.motherName || '',
-          date_of_birth: m.dateOfBirth || '',
-          email: m.email || null,
-          phone: m.phone || '',
-          address: m.address || '',
-          permanent_address: m.permanentAddress || '',
-          occupation: m.occupation || '',
-          nid: m.nid || '',
-          membership_type: m.membershipType || 'general',
-          nominee_name: m.nomineeName || '',
-          nominee_relation: m.nomineeRelation || '',
-          avatar_data_url: m.avatarDataUrl || '',
-          signature_text: m.signatureText || '',
-          accepted_rules: Boolean(m.acceptedRules),
-          registration_completed: Boolean(m.registrationCompleted),
-          registration_status: m.registrationStatus || 'unsubmitted',
-          monthly_target: m.monthlyTarget,
-          total_savings: m.totalSavings,
-          status: m.status,
-          role: m.role,
-          joined_at: m.joinedAt,
-          password_hash: m.passwordHash,
-        }))
+      tasks.push(
+        (async () => {
+          const { error: memErr } = await supabaseServer.from('members').upsert(
+            db.members.map((m) => ({
+              id: m.id,
+              member_id: m.memberId,
+              name: m.name,
+              father_name: m.fatherName || '',
+              mother_name: m.motherName || '',
+              date_of_birth: m.dateOfBirth || '',
+              email: m.email || null,
+              phone: m.phone || '',
+              address: m.address || '',
+              permanent_address: m.permanentAddress || '',
+              occupation: m.occupation || '',
+              nid: m.nid || '',
+              membership_type: m.membershipType || 'general',
+              nominee_name: m.nomineeName || '',
+              nominee_relation: m.nomineeRelation || '',
+              avatar_data_url: m.avatarDataUrl || '',
+              signature_text: m.signatureText || '',
+              accepted_rules: Boolean(m.acceptedRules),
+              registration_completed: Boolean(m.registrationCompleted),
+              registration_status: m.registrationStatus || 'unsubmitted',
+              monthly_target: m.monthlyTarget,
+              total_savings: m.totalSavings,
+              status: m.status,
+              role: m.role,
+              joined_at: m.joinedAt,
+              password_hash: m.passwordHash,
+            }))
+          );
+          if (!memErr) {
+            anyCoreTableReady = true;
+            lastSyncedCounts.members = db.members.length;
+          } else if (isMissingColumnError(memErr)) {
+            const { error: memBaseErr } = await supabaseServer.from('members').upsert(
+              db.members.map((m) => ({
+                id: m.id,
+                member_id: m.memberId,
+                name: m.name,
+                email: m.email || null,
+                phone: m.phone || '',
+                address: m.address || '',
+                permanent_address: m.permanentAddress || '',
+                occupation: m.occupation || '',
+                nid: m.nid || '',
+                nominee_name: m.nomineeName || '',
+                nominee_relation: m.nomineeRelation || '',
+                avatar_data_url: m.avatarDataUrl || '',
+                monthly_target: m.monthlyTarget,
+                total_savings: m.totalSavings,
+                status: m.status,
+                role: m.role,
+                joined_at: m.joinedAt,
+                password_hash: m.passwordHash,
+              }))
+            );
+            if (!memBaseErr) {
+              anyCoreTableReady = true;
+              lastSyncedCounts.members = db.members.length;
+            } else if (!isMissingTableError(memBaseErr)) {
+              console.warn('Supabase members sync note:', memBaseErr.message);
+            }
+          } else if (!isMissingTableError(memErr)) {
+            console.warn('Supabase members sync note:', memErr.message);
+          }
+        })()
       );
-      if (!memErr) {
-        anyCoreTableReady = true;
-      } else if (isMissingColumnError(memErr)) {
-        // Fallback to core 9-table members columns if extended columns were not added
-        const { error: memBaseErr } = await supabaseServer.from('members').upsert(
-          db.members.map((m) => ({
-            id: m.id,
-            member_id: m.memberId,
-            name: m.name,
-            email: m.email || null,
-            phone: m.phone || '',
-            address: m.address || '',
-            permanent_address: m.permanentAddress || '',
-            occupation: m.occupation || '',
-            nid: m.nid || '',
-            nominee_name: m.nomineeName || '',
-            nominee_relation: m.nomineeRelation || '',
-            avatar_data_url: m.avatarDataUrl || '',
-            monthly_target: m.monthlyTarget,
-            total_savings: m.totalSavings,
-            status: m.status,
-            role: m.role,
-            joined_at: m.joinedAt,
-            password_hash: m.passwordHash,
-          }))
-        );
-        if (!memBaseErr) {
-          anyCoreTableReady = true;
-        } else if (!isMissingTableError(memBaseErr)) {
-          console.warn('Supabase members sync note:', memBaseErr.message);
-        }
-      } else if (!isMissingTableError(memErr)) {
-        console.warn('Supabase members sync note:', memErr.message);
-      }
-    } else {
-      await supabaseServer.from('members').delete().neq('id', '__never__');
+    } else if (lastSyncedCounts.members !== 0) {
+      tasks.push(
+        (async () => {
+          const { error } = await supabaseServer.from('members').delete().neq('id', '__never__');
+          if (!error) lastSyncedCounts.members = 0;
+        })()
+      );
     }
 
     if (db.payments.length > 0) {
-      const { error: payErr } = await supabaseServer.from('payments').upsert(
-        db.payments.map((p) => ({
-          id: p.id,
-          member_doc_id: p.memberDocId,
-          member_id: p.memberId,
-          member_name: p.memberName,
-          payment_type: p.paymentType,
-          month: p.month,
-          amount: p.amount,
-          method: p.method,
-          sender_account: p.senderAccount,
-          transaction_id: p.transactionId,
-          note: p.note || '',
-          screenshot_data_url: p.screenshotDataUrl || null,
-          status: p.status,
-          rejection_reason: p.rejectionReason || null,
-          receipt_number: p.receiptNumber || null,
-          verified_by: p.verifiedBy || null,
-          created_at: p.createdAt,
-        }))
+      tasks.push(
+        (async () => {
+          const { error: payErr } = await supabaseServer.from('payments').upsert(
+            db.payments.map((p) => ({
+              id: p.id,
+              member_doc_id: p.memberDocId,
+              member_id: p.memberId,
+              member_name: p.memberName,
+              payment_type: p.paymentType,
+              month: p.month,
+              amount: p.amount,
+              method: p.method,
+              sender_account: p.senderAccount,
+              transaction_id: p.transactionId,
+              note: p.note || '',
+              screenshot_data_url: p.screenshotDataUrl || null,
+              status: p.status,
+              rejection_reason: p.rejectionReason || null,
+              receipt_number: p.receiptNumber || null,
+              verified_by: p.verifiedBy || null,
+              created_at: p.createdAt,
+            }))
+          );
+          if (!payErr) {
+            lastSyncedCounts.payments = db.payments.length;
+          } else if (!isMissingTableError(payErr)) {
+            console.warn('Supabase payments sync note:', payErr.message);
+          }
+        })()
       );
-      if (payErr && !isMissingTableError(payErr)) {
-        console.warn('Supabase payments sync note:', payErr.message);
-      }
-    } else {
-      await supabaseServer.from('payments').delete().neq('id', '__never__');
+    } else if (lastSyncedCounts.payments !== 0) {
+      tasks.push(
+        (async () => {
+          const { error } = await supabaseServer.from('payments').delete().neq('id', '__never__');
+          if (!error) lastSyncedCounts.payments = 0;
+        })()
+      );
     }
 
     if (db.withdrawals.length > 0) {
-      const { error: wErr } = await supabaseServer.from('withdrawals').upsert(
-        db.withdrawals.map((w) => ({
-          id: w.id,
-          member_doc_id: w.memberDocId,
-          member_id: w.memberId,
-          member_name: w.memberName,
-          amount: w.amount,
-          method: w.method,
-          account_details: w.accountDetails,
-          reason: w.reason || '',
-          status: w.status,
-          rejection_reason: w.rejectionReason || null,
-          approved_by: w.approvedBy || null,
-          processed_at: w.processedAt || null,
-          created_at: w.createdAt,
-        }))
+      tasks.push(
+        (async () => {
+          const { error: wErr } = await supabaseServer.from('withdrawals').upsert(
+            db.withdrawals.map((w) => ({
+              id: w.id,
+              member_doc_id: w.memberDocId,
+              member_id: w.memberId,
+              member_name: w.memberName,
+              amount: w.amount,
+              method: w.method,
+              account_details: w.accountDetails,
+              reason: w.reason || '',
+              status: w.status,
+              rejection_reason: w.rejectionReason || null,
+              approved_by: w.approvedBy || null,
+              processed_at: w.processedAt || null,
+              created_at: w.createdAt,
+            }))
+          );
+          if (!wErr) {
+            lastSyncedCounts.withdrawals = db.withdrawals.length;
+          } else if (!isMissingTableError(wErr)) {
+            console.warn('Supabase withdrawals sync note:', wErr.message);
+          }
+        })()
       );
-      if (wErr && !isMissingTableError(wErr)) {
-        console.warn('Supabase withdrawals sync note:', wErr.message);
-      }
-    } else {
-      await supabaseServer.from('withdrawals').delete().neq('id', '__never__');
+    } else if (lastSyncedCounts.withdrawals !== 0) {
+      tasks.push(
+        (async () => {
+          const { error } = await supabaseServer.from('withdrawals').delete().neq('id', '__never__');
+          if (!error) lastSyncedCounts.withdrawals = 0;
+        })()
+      );
     }
 
     if (db.fines.length > 0) {
-      const { error: fineErr } = await supabaseServer.from('fines').upsert(
-        db.fines.map((f) => ({
-          id: f.id,
-          member_doc_id: f.memberDocId,
-          member_id: f.memberId,
-          member_name: f.memberName,
-          reason: f.reason,
-          amount: f.amount,
-          due_date: f.dueDate,
-          status: f.status,
-          created_at: f.createdAt,
-        }))
+      tasks.push(
+        (async () => {
+          const { error: fineErr } = await supabaseServer.from('fines').upsert(
+            db.fines.map((f) => ({
+              id: f.id,
+              member_doc_id: f.memberDocId,
+              member_id: f.memberId,
+              member_name: f.memberName,
+              reason: f.reason,
+              amount: f.amount,
+              due_date: f.dueDate,
+              status: f.status,
+              created_at: f.createdAt,
+            }))
+          );
+          if (!fineErr) {
+            lastSyncedCounts.fines = db.fines.length;
+          } else if (!isMissingTableError(fineErr)) {
+            console.warn('Supabase fines sync note:', fineErr.message);
+          }
+        })()
       );
-      if (fineErr && !isMissingTableError(fineErr)) {
-        console.warn('Supabase fines sync note:', fineErr.message);
-      }
-    } else {
-      await supabaseServer.from('fines').delete().neq('id', '__never__');
+    } else if (lastSyncedCounts.fines !== 0) {
+      tasks.push(
+        (async () => {
+          const { error } = await supabaseServer.from('fines').delete().neq('id', '__never__');
+          if (!error) lastSyncedCounts.fines = 0;
+        })()
+      );
     }
 
     if (db.ledger.length > 0) {
-      const { error: ledgerErr } = await supabaseServer.from('ledger').upsert(
-        db.ledger.map((l) => ({
-          id: l.id,
-          type: l.type,
-          category: l.category,
-          title: l.title,
-          amount: l.amount,
-          date: l.date,
-          description: l.description || '',
-          recorded_by: l.recordedBy || '',
-          created_at: l.createdAt,
-        }))
+      tasks.push(
+        (async () => {
+          const { error: ledgerErr } = await supabaseServer.from('ledger').upsert(
+            db.ledger.map((l) => ({
+              id: l.id,
+              type: l.type,
+              category: l.category,
+              title: l.title,
+              amount: l.amount,
+              date: l.date,
+              description: l.description || '',
+              recorded_by: l.recordedBy || '',
+              created_at: l.createdAt,
+            }))
+          );
+          if (!ledgerErr) {
+            lastSyncedCounts.ledger = db.ledger.length;
+          } else if (!isMissingTableError(ledgerErr)) {
+            console.warn('Supabase ledger sync note:', ledgerErr.message);
+          }
+        })()
       );
-      if (ledgerErr && !isMissingTableError(ledgerErr)) {
-        console.warn('Supabase ledger sync note:', ledgerErr.message);
-      }
-    } else {
-      await supabaseServer.from('ledger').delete().neq('id', '__never__');
+    } else if (lastSyncedCounts.ledger !== 0) {
+      tasks.push(
+        (async () => {
+          const { error } = await supabaseServer.from('ledger').delete().neq('id', '__never__');
+          if (!error) lastSyncedCounts.ledger = 0;
+        })()
+      );
     }
 
     if (db.investments.length > 0) {
-      const { error: invErr } = await supabaseServer.from('investments').upsert(
-        db.investments.map((inv) => ({
-          id: inv.id,
-          title_en: inv.titleEn,
-          title_bn: inv.titleBn || '',
-          category: inv.category || '',
-          invested_amount: inv.investedAmount,
-          expected_return_rate: inv.expectedReturnRate || 0,
-          actual_return_amount: inv.actualReturnAmount || 0,
-          start_date: inv.startDate || null,
-          maturity_date: inv.maturityDate || null,
-          description_en: inv.descriptionEn || '',
-          description_bn: inv.descriptionBn || '',
-          status: inv.status,
-          created_at: inv.createdAt,
-        }))
+      tasks.push(
+        (async () => {
+          const { error: invErr } = await supabaseServer.from('investments').upsert(
+            db.investments.map((inv) => ({
+              id: inv.id,
+              title_en: inv.titleEn,
+              title_bn: inv.titleBn || '',
+              category: inv.category || '',
+              invested_amount: inv.investedAmount,
+              expected_return_rate: inv.expectedReturnRate || 0,
+              actual_return_amount: inv.actualReturnAmount || 0,
+              start_date: inv.startDate || null,
+              maturity_date: inv.maturityDate || null,
+              description_en: inv.descriptionEn || '',
+              description_bn: inv.descriptionBn || '',
+              status: inv.status,
+              created_at: inv.createdAt,
+            }))
+          );
+          if (!invErr) {
+            lastSyncedCounts.investments = db.investments.length;
+          } else if (!isMissingTableError(invErr)) {
+            console.warn('Supabase investments sync note:', invErr.message);
+          }
+        })()
       );
-      if (invErr && !isMissingTableError(invErr)) {
-        console.warn('Supabase investments sync note:', invErr.message);
-      }
-    } else {
-      await supabaseServer.from('investments').delete().neq('id', '__never__');
+    } else if (lastSyncedCounts.investments !== 0) {
+      tasks.push(
+        (async () => {
+          const { error } = await supabaseServer.from('investments').delete().neq('id', '__never__');
+          if (!error) lastSyncedCounts.investments = 0;
+        })()
+      );
     }
 
     if (db.meetings.length > 0) {
-      const { error: mtErr } = await supabaseServer.from('meetings').upsert(
-        db.meetings.map((mt) => ({
-          id: mt.id,
-          title_en: mt.titleEn,
-          title_bn: mt.titleBn || '',
-          date: mt.date,
-          time: mt.time || '',
-          location: mt.location || '',
-          agenda_en: mt.agendaEn || '',
-          agenda_bn: mt.agendaBn || '',
-          minutes_en: mt.minutesEn || '',
-          minutes_bn: mt.minutesBn || '',
-          status: mt.status,
-          created_at: mt.createdAt,
-        }))
+      tasks.push(
+        (async () => {
+          const { error: mtErr } = await supabaseServer.from('meetings').upsert(
+            db.meetings.map((mt) => ({
+              id: mt.id,
+              title_en: mt.titleEn,
+              title_bn: mt.titleBn || '',
+              date: mt.date,
+              time: mt.time || '',
+              location: mt.location || '',
+              agenda_en: mt.agendaEn || '',
+              agenda_bn: mt.agendaBn || '',
+              minutes_en: mt.minutesEn || '',
+              minutes_bn: mt.minutesBn || '',
+              status: mt.status,
+              created_at: mt.createdAt,
+            }))
+          );
+          if (!mtErr) {
+            lastSyncedCounts.meetings = db.meetings.length;
+          } else if (!isMissingTableError(mtErr)) {
+            console.warn('Supabase meetings sync note:', mtErr.message);
+          }
+        })()
       );
-      if (mtErr && !isMissingTableError(mtErr)) {
-        console.warn('Supabase meetings sync note:', mtErr.message);
-      }
-    } else {
-      await supabaseServer.from('meetings').delete().neq('id', '__never__');
+    } else if (lastSyncedCounts.meetings !== 0) {
+      tasks.push(
+        (async () => {
+          const { error } = await supabaseServer.from('meetings').delete().neq('id', '__never__');
+          if (!error) lastSyncedCounts.meetings = 0;
+        })()
+      );
     }
 
     if (db.polls.length > 0) {
-      const { error: pollErr } = await supabaseServer.from('polls').upsert(
-        db.polls.map((pl) => ({
-          id: pl.id,
-          question_en: pl.questionEn,
-          question_bn: pl.questionBn || '',
-          deadline: pl.deadline || null,
-          status: pl.status,
-          options: pl.options,
-          voted_member_ids: pl.votedMemberIds,
-          created_at: pl.createdAt,
-        }))
+      tasks.push(
+        (async () => {
+          const { error: pollErr } = await supabaseServer.from('polls').upsert(
+            db.polls.map((pl) => ({
+              id: pl.id,
+              question_en: pl.questionEn,
+              question_bn: pl.questionBn || '',
+              deadline: pl.deadline || null,
+              status: pl.status,
+              options: pl.options,
+              voted_member_ids: pl.votedMemberIds,
+              created_at: pl.createdAt,
+            }))
+          );
+          if (!pollErr) {
+            lastSyncedCounts.polls = db.polls.length;
+          } else if (!isMissingTableError(pollErr)) {
+            console.warn('Supabase polls sync note:', pollErr.message);
+          }
+        })()
       );
-      if (pollErr && !isMissingTableError(pollErr)) {
-        console.warn('Supabase polls sync note:', pollErr.message);
-      }
-    } else {
-      await supabaseServer.from('polls').delete().neq('id', '__never__');
+    } else if (lastSyncedCounts.polls !== 0) {
+      tasks.push(
+        (async () => {
+          const { error } = await supabaseServer.from('polls').delete().neq('id', '__never__');
+          if (!error) lastSyncedCounts.polls = 0;
+        })()
+      );
     }
+
+    await Promise.race([
+      Promise.allSettled(tasks),
+      new Promise<void>((resolve) => setTimeout(resolve, 2500)),
+    ]);
 
     if (anyCoreTableReady) {
       supabaseSchemaReady = true;
@@ -499,7 +619,7 @@ export async function initDbFromSupabase(): Promise<void> {
       .maybeSingle();
 
     const timeoutPromise = new Promise<{ data: null; error: { message: string; code?: string } }>((resolve) =>
-      setTimeout(() => resolve({ data: null, error: { message: 'Supabase init timeout' } }), 2500)
+      setTimeout(() => resolve({ data: null, error: { message: 'Supabase init timeout' } }), 1500)
     );
 
     const { data, error } = await Promise.race([queryPromise, timeoutPromise]);
@@ -510,6 +630,7 @@ export async function initDbFromSupabase(): Promise<void> {
       if (remote && Array.isArray(remote.admins) && Array.isArray(remote.members)) {
         const normalized = normalizeLoadedDb(remote);
         writeLocalDb(normalized);
+        recordSyncedCounts(normalized);
         return;
       }
     }
@@ -525,7 +646,7 @@ export async function initDbFromSupabase(): Promise<void> {
       supabaseServer.from('meetings').select('*'),
       supabaseServer.from('polls').select('*'),
     ]);
-    const tableTimeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500));
+    const tableTimeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500));
     const tableResults = await Promise.race([tableCheckPromise, tableTimeout]);
     if (!tableResults) return;
 
@@ -695,9 +816,13 @@ export async function initDbFromSupabase(): Promise<void> {
           remoteMembers.length + 1
         ),
       };
-      writeLocalDb(normalizeLoadedDb(hydrated));
+      const normalizedHydrated = normalizeLoadedDb(hydrated);
+      writeLocalDb(normalizedHydrated);
+      recordSyncedCounts(normalizedHydrated);
+    } else if (local.members.length > 0 || local.payments.length > 0) {
+      void performSupabaseSync(local);
     } else {
-      await performSupabaseSync(local);
+      recordSyncedCounts(local);
     }
   } catch (err) {
     console.warn('Supabase init fallback to local store:', err);
@@ -707,7 +832,7 @@ export async function initDbFromSupabase(): Promise<void> {
 }
 
 export async function ensureDbReady(): Promise<void> {
-  if (hasHydratedOnce && (!IS_SERVERLESS || Date.now() - lastHydratedAt < 4000)) {
+  if (hasHydratedOnce && (!IS_SERVERLESS || Date.now() - lastHydratedAt < 15000)) {
     return;
   }
   if (!initPromise) {
@@ -756,7 +881,9 @@ export async function saveDbAsync(db: SocietyDatabase): Promise<void> {
   supabaseSyncChain = supabaseSyncChain
     .then(() => performSupabaseSync(snapshot))
     .catch(() => {});
-  await supabaseSyncChain;
+  if (IS_SERVERLESS) {
+    await supabaseSyncChain;
+  }
 }
 
 export function sanitizeAdmin(a: AdminStored): AdminUserPublic {

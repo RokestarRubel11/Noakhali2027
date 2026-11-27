@@ -1,7 +1,22 @@
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
-import * as XLSX from 'xlsx';
+import type jsPDFType from 'jspdf';
 import type { AdminOverviewResponse, PaymentSubmission, SocietySettings } from '../types.ts';
+
+let pdfLibsPromise: Promise<[typeof import('jspdf'), typeof import('jspdf-autotable')]> | null = null;
+let xlsxLibPromise: Promise<typeof import('xlsx')> | null = null;
+
+function loadPdfLibs() {
+  if (!pdfLibsPromise) {
+    pdfLibsPromise = Promise.all([import('jspdf'), import('jspdf-autotable')]);
+  }
+  return pdfLibsPromise;
+}
+
+function loadXlsxLib() {
+  if (!xlsxLibPromise) {
+    xlsxLibPromise = import('xlsx');
+  }
+  return xlsxLibPromise;
+}
 
 function formatBdtAscii(amount: number): string {
   return `BDT ${new Intl.NumberFormat('en-US', {
@@ -10,10 +25,11 @@ function formatBdtAscii(amount: number): string {
   }).format(Number(amount || 0))}`;
 }
 
-export function downloadReceiptPdf(
+export async function downloadReceiptPdf(
   payment: PaymentSubmission,
   settings: SocietySettings
-): void {
+): Promise<void> {
+  const [{ default: jsPDF }, { default: autoTable }] = await loadPdfLibs();
   const doc = new jsPDF({ unit: 'pt', format: 'a5' });
 
   // Navy header bar
@@ -65,7 +81,7 @@ export function downloadReceiptPdf(
     ],
   });
 
-  const finalY = (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY || 420;
+  const finalY = (doc as jsPDFType & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY || 420;
   doc.setFontSize(8.5);
   doc.setTextColor(100, 116, 139);
   doc.text(
@@ -77,7 +93,8 @@ export function downloadReceiptPdf(
   doc.save(`Receipt_${receiptNo}_${payment.memberId}.pdf`);
 }
 
-export function exportSummaryPdf(data: AdminOverviewResponse): void {
+export async function exportSummaryPdf(data: AdminOverviewResponse): Promise<void> {
+  const [{ default: jsPDF }, { default: autoTable }] = await loadPdfLibs();
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   doc.setFillColor(11, 31, 58);
   doc.rect(0, 0, doc.internal.pageSize.getWidth(), 72, 'F');
@@ -114,7 +131,8 @@ export function exportSummaryPdf(data: AdminOverviewResponse): void {
   doc.save(`HNS_Financial_Summary_${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
-export function exportMembersPdf(data: AdminOverviewResponse): void {
+export async function exportMembersPdf(data: AdminOverviewResponse): Promise<void> {
+  const [{ default: jsPDF }, { default: autoTable }] = await loadPdfLibs();
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   doc.setFillColor(11, 31, 58);
   doc.rect(0, 0, doc.internal.pageSize.getWidth(), 68, 'F');
@@ -141,7 +159,8 @@ export function exportMembersPdf(data: AdminOverviewResponse): void {
   doc.save(`HNS_Member_Register_${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
-export function exportPaymentsPdf(data: AdminOverviewResponse): void {
+export async function exportPaymentsPdf(data: AdminOverviewResponse): Promise<void> {
+  const [{ default: jsPDF }, { default: autoTable }] = await loadPdfLibs();
   const doc = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'landscape' });
   doc.setFillColor(11, 31, 58);
   doc.rect(0, 0, doc.internal.pageSize.getWidth(), 64, 'F');
@@ -171,7 +190,8 @@ export function exportPaymentsPdf(data: AdminOverviewResponse): void {
   doc.save(`HNS_Payment_Audit_${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
-export function exportLedgerPdf(data: AdminOverviewResponse): void {
+export async function exportLedgerPdf(data: AdminOverviewResponse): Promise<void> {
+  const [{ default: jsPDF }, { default: autoTable }] = await loadPdfLibs();
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   doc.setFillColor(11, 31, 58);
   doc.rect(0, 0, doc.internal.pageSize.getWidth(), 64, 'F');
@@ -197,10 +217,11 @@ export function exportLedgerPdf(data: AdminOverviewResponse): void {
   doc.save(`HNS_Income_Expense_${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
-export function exportExcelWorkbook(
+export async function exportExcelWorkbook(
   scope: 'summary' | 'members' | 'payments' | 'ledger',
   data: AdminOverviewResponse
-): void {
+): Promise<void> {
+  const XLSX = await loadXlsxLib();
   const wb = XLSX.utils.book_new();
 
   if (scope === 'summary') {

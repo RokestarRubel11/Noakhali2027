@@ -34,7 +34,6 @@ import { MEMBER_UPLIFTING_QUOTES } from '../../data/memberQuotes.ts';
 import { useLanguage } from '../../context/LanguageContext.tsx';
 import { ApiError, apiRequest, getMemberToken, setMemberToken } from '../../lib/api.ts';
 import { processAnyImageToDataUrl } from '../../lib/imageUtils.ts';
-import { downloadReceiptPdf } from '../../lib/reports.ts';
 import type { MemberOverviewResponse, PaymentMethod, PaymentType } from '../../types.ts';
 import { LanguageToggle } from '../LanguageToggle.tsx';
 import { MembershipRegistrationForm } from '../MembershipRegistrationForm.tsx';
@@ -1346,7 +1345,10 @@ export function MemberDashboard({ onLogout }: { onLogout: () => void }) {
                           {p.status === 'approved' && (
                             <button
                               type="button"
-                              onClick={() => downloadReceiptPdf(p, data.settings)}
+                              onClick={async () => {
+                                const { downloadReceiptPdf } = await import('../../lib/reports.ts');
+                                await downloadReceiptPdf(p, data.settings);
+                              }}
                               className="w-full inline-flex items-center justify-center gap-2 min-h-[44px] px-4 py-2 rounded-xl bg-[#09328E] hover:bg-navy-800 active:scale-[0.98] text-white text-xs font-bold cursor-pointer"
                             >
                               <FileDown className="w-4 h-4 text-gold-400" />
@@ -1400,7 +1402,10 @@ export function MemberDashboard({ onLogout }: { onLogout: () => void }) {
                                 {p.status === 'approved' && (
                                   <button
                                     type="button"
-                                    onClick={() => downloadReceiptPdf(p, data.settings)}
+                                    onClick={async () => {
+                                      const { downloadReceiptPdf } = await import('../../lib/reports.ts');
+                                      await downloadReceiptPdf(p, data.settings);
+                                    }}
                                     className="inline-flex items-center gap-1.5 min-h-[36px] px-3 py-1.5 rounded-lg bg-[#09328E] hover:bg-navy-800 text-white text-xs font-semibold cursor-pointer"
                                   >
                                     <FileDown className="w-3.5 h-3.5 text-gold-400" />
@@ -1486,7 +1491,10 @@ export function MemberDashboard({ onLogout }: { onLogout: () => void }) {
                       </div>
                       <button
                         type="button"
-                        onClick={() => downloadReceiptPdf(p, data.settings)}
+                        onClick={async () => {
+                          const { downloadReceiptPdf } = await import('../../lib/reports.ts');
+                          await downloadReceiptPdf(p, data.settings);
+                        }}
                         className="min-h-[40px] px-3.5 py-2 rounded-xl bg-[#09328E] hover:bg-navy-800 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shrink-0"
                       >
                         <FileDown className="w-4 h-4 text-[#FFD426]" />

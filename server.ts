@@ -21,8 +21,21 @@ async function startServer() {
       (!isRunningUnderTsx && process.env.npm_lifecycle_event !== 'dev'));
 
   if (isProd) {
-    app.use(express.static(distDir));
+    app.use(
+      express.static(distDir, {
+        maxAge: '7d',
+        etag: true,
+        setHeaders: (res, filePath) => {
+          if (filePath.endsWith('index.html')) {
+            res.setHeader('Cache-Control', 'no-cache');
+          } else if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          }
+        },
+      })
+    );
     app.get('*', (_req, res) => {
+      res.setHeader('Cache-Control', 'no-cache');
       res.sendFile(path.join(distDir, 'index.html'));
     });
   } else {

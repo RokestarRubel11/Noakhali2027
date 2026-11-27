@@ -14,13 +14,6 @@ import {
 import { useLanguage } from '../../context/LanguageContext.tsx';
 import { LanguageToggle } from '../LanguageToggle.tsx';
 import { apiRequest, getAdminToken } from '../../lib/api.ts';
-import {
-  exportExcelWorkbook,
-  exportLedgerPdf,
-  exportMembersPdf,
-  exportPaymentsPdf,
-  exportSummaryPdf,
-} from '../../lib/reports.ts';
 import type { AdminOverviewResponse, InvestmentProject, SocietySettings } from '../../types.ts';
 import { StatusText } from '../StatusText.tsx';
 
@@ -1169,25 +1162,37 @@ export function AdminReportsView({ data }: { data: AdminOverviewResponse }) {
       id: 'summary' as const,
       title: t('reportSummaryTitle'),
       desc: t('reportSummaryDesc'),
-      onPdf: () => exportSummaryPdf(data),
+      onPdf: async () => {
+        const { exportSummaryPdf } = await import('../../lib/reports.ts');
+        await exportSummaryPdf(data);
+      },
     },
     {
       id: 'members' as const,
       title: t('reportMembersTitle'),
       desc: t('reportMembersDesc'),
-      onPdf: () => exportMembersPdf(data),
+      onPdf: async () => {
+        const { exportMembersPdf } = await import('../../lib/reports.ts');
+        await exportMembersPdf(data);
+      },
     },
     {
       id: 'payments' as const,
       title: t('reportPaymentsTitle'),
       desc: t('reportPaymentsDesc'),
-      onPdf: () => exportPaymentsPdf(data),
+      onPdf: async () => {
+        const { exportPaymentsPdf } = await import('../../lib/reports.ts');
+        await exportPaymentsPdf(data);
+      },
     },
     {
       id: 'ledger' as const,
       title: t('reportLedgerTitle'),
       desc: t('reportLedgerDesc'),
-      onPdf: () => exportLedgerPdf(data),
+      onPdf: async () => {
+        const { exportLedgerPdf } = await import('../../lib/reports.ts');
+        await exportLedgerPdf(data);
+      },
     },
   ];
 
@@ -1219,7 +1224,10 @@ export function AdminReportsView({ data }: { data: AdminOverviewResponse }) {
               </button>
               <button
                 type="button"
-                onClick={() => exportExcelWorkbook(card.id, data)}
+                onClick={async () => {
+                  const { exportExcelWorkbook } = await import('../../lib/reports.ts');
+                  await exportExcelWorkbook(card.id, data);
+                }}
                 className="inline-flex items-center gap-2 min-h-[42px] px-4 py-2 rounded-xl border border-slate-300 hover:border-navy-700 text-navy-900 text-xs sm:text-sm font-semibold cursor-pointer whitespace-nowrap"
               >
                 <FileSpreadsheet className="w-4 h-4 text-emerald-700" />

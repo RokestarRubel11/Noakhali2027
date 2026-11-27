@@ -520,7 +520,7 @@ export function createApiApp(): express.Express {
       status: 'pending' as const,
       role: 'member' as const,
       joinedAt: now.slice(0, 10),
-      passwordHash: bcrypt.hashSync(password, 10),
+      passwordHash: bcrypt.hashSync(password, 8),
     };
     db.members.push(newMember);
     await saveDbAsync(db);
@@ -598,7 +598,7 @@ export function createApiApp(): express.Express {
       status: 'active' as const,
       role: 'member' as const,
       joinedAt: new Date().toISOString().slice(0, 10),
-      passwordHash: bcrypt.hashSync(password, 10),
+      passwordHash: bcrypt.hashSync(password, 8),
     };
     db.members.push(newMember);
     await saveDbAsync(db);
@@ -643,7 +643,7 @@ export function createApiApp(): express.Express {
       member.registrationCompleted = registrationStatus === 'approved' || registrationStatus === 'pending';
     }
     if (typeof newPassword === 'string' && newPassword.length >= 6) {
-      member.passwordHash = bcrypt.hashSync(newPassword, 10);
+      member.passwordHash = bcrypt.hashSync(newPassword, 8);
     }
     await saveDbAsync(db);
     res.json({ member: sanitizeMember(member) });
@@ -1383,7 +1383,7 @@ export function createApiApp(): express.Express {
         res.status(401).json({ error: 'Current password is incorrect' });
         return;
       }
-      member.passwordHash = bcrypt.hashSync(newPassword, 10);
+      member.passwordHash = bcrypt.hashSync(newPassword, 8);
     }
     await saveDbAsync(db);
     res.json({ member: sanitizeMember(member) });

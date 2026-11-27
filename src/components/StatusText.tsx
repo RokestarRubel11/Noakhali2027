@@ -80,6 +80,7 @@ export function SocietyCrest({ className = 'w-11 h-11' }: { className?: string }
       <img
         src="/assets/aistudio/______________________________________a19d7be5.png"
         alt="হ্যালো নোয়াখালী সঞ্চয় ও বিনিয়োগ সমিতি লোগো"
+        decoding="async"
         referrerPolicy="no-referrer"
         className="w-full h-full object-contain"
         onError={(e) => {
